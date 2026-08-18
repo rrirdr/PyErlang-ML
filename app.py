@@ -20,6 +20,7 @@ from modules import data_hygiene as dh
 from modules import ml_forecaster as mlf
 from modules import capacity_planner as cp
 from modules import exporter as exp
+from modules import sample_data as sd
 
 st.set_page_config(page_title="PyErlang-ML", layout="wide", page_icon="📞")
 
@@ -30,6 +31,7 @@ st.set_page_config(page_title="PyErlang-ML", layout="wide", page_icon="📞")
 
 DEFAULT_STATE = {
     "raw_df": None,
+    "_last_source": None,
     "cleaned_df": None,
     "hygiene_report": None,
     "interval_minutes": 30,
@@ -54,6 +56,7 @@ st.sidebar.caption("Enterprise Call Volume Forecasting & Erlang Capacity Engine"
 st.sidebar.divider()
 
 st.sidebar.subheader("1. Data Source")
+
 uploaded_file = st.sidebar.file_uploader("Upload interval volume file", type=["csv", "xlsx"])
 
 if uploaded_file is not None:
@@ -62,9 +65,33 @@ if uploaded_file is not None:
             raw = pd.read_csv(uploaded_file)
         else:
             raw = pd.read_excel(uploaded_file)
+        # New upload invalidates anything computed from a previous dataset
+        if st.session_state.get("_last_source") != uploaded_file.name:
+            for k, v in DEFAULT_STATE.items():
+                if k != "raw_df":
+                    st.session_state[k] = v
         st.session_state["raw_df"] = raw
+        st.session_state["_last_source"] = uploaded_file.name
     except Exception as e:
         st.sidebar.error(f"Could not read file: {e}")
+
+st.sidebar.caption("— or —")
+if st.sidebar.button("🎲 Load Sample Dataset", use_container_width=True):
+    for k, v in DEFAULT_STATE.items():
+        if k != "raw_df":
+            st.session_state[k] = v
+    st.session_state["raw_df"] = sd.generate_sample_dataset()
+    st.session_state["_last_source"] = "sample_dataset"
+    st.sidebar.success("Sample dataset loaded — 120 days of synthetic 30-min interval volume.")
+
+st.sidebar.download_button(
+    "⬇️ Download Data Template (.csv)",
+    data=sd.generate_template_csv_bytes(),
+    file_name="PyErlang-ML_data_template.csv",
+    mime="text/csv",
+    use_container_width=True,
+    help="A minimal example CSV showing the exact columns and format PyErlang-ML expects.",
+)
 
 st.sidebar.subheader("2. WFM Assumptions")
 target_sl_pct = st.sidebar.slider("Target Service Level (%)", 50, 99, 80, 1)
@@ -108,10 +135,14 @@ with tab1:
     st.header("Data Ingestion & Hygiene Dashboard")
 
     if st.session_state["raw_df"] is None:
-        st.info("Upload a `.csv` or `.xlsx` file in the sidebar to begin. "
-                "Required columns: `timestamp`, `volume`. Optional: `aht` (seconds).")
+        st.info("Upload a `.csv` or `.xlsx` file, or click **🎲 Load Sample Dataset**, in the sidebar to begin. "
+                "Required columns: `timestamp`, `volume`. Optional: `aht` (seconds). "
+                "Not sure about formatting? Download the **Data Template** from the sidebar first.")
     else:
         raw_df = st.session_state["raw_df"]
+        if st.session_state.get("_last_source") == "sample_dataset":
+            st.caption("🎲 Currently exploring the built-in **synthetic sample dataset** "
+                       "(120 days, 30-min intervals). Upload your own file in the sidebar to replace it.")
         with st.expander("Raw file preview", expanded=False):
             st.dataframe(raw_df.head(20), use_container_width=True)
 
